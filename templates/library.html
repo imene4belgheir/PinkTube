@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Library - HLS Streaming</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-content">
+            <a href="/"><img src="{{ url_for('static', filename='pinktube2.png') }}" alt="Logo" class="nav-logo"></a>
+            <a href="/" class="nav-link">➕ Upload New</a>
+        </div>
+    </nav>
+
+    <div class="library-container">
+        <h1>📚 Video Library</h1>
+        
+        {% if videos %}
+        <div class="video-grid">
+            {% for video in videos %}
+            <div class="video-card" onclick="window.location.href='/player?video={{ video.id }}'">
+                <div class="video-thumbnail">
+                    <img src="{{ video.thumbnail }}" alt="{{ video.title }}">
+                    <div class="video-duration">{{ video.duration | format_duration }}</div>
+                </div>
+                <div class="video-info">
+                    <h3 class="video-title">{{ video.title }}</h3>
+                    <p class="video-date">{{ video.upload_date | format_date }}</p>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon">📹</div>
+            <h2>No videos yet</h2>
+            <p>Upload your first video to get started!</p>
+            <a href="/" class="upload-btn" style="display: inline-block; text-decoration: none; margin-top: 20px;">
+                Upload Video
+            </a>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        // Helper functions for formatting (if not done server-side)
+        function formatDuration(seconds) {
+            const hrs = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            
+            if (hrs > 0) {
+                return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+    </script>
+</body>
+</html>

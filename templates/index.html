@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Video - HLS Streaming</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-content">
+            <a href="/"><img src="{{ url_for('static', filename='pinktube2.png') }}" alt="Logo" class="nav-logo"></a>
+            <a href="/library" class="nav-link">📚 Library</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <h1>✨ Upload New Video ✨</h1>
+        
+        <form id="uploadForm">
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">🎬</div>
+                <div class="upload-text">Click to select video</div>
+                <div class="upload-subtext">Supported formats: MP4, AVI, MOV, MKV, WebM</div>
+            </div>
+            <input type="file" id="videoFile" name="video" accept="video/*">
+            
+            <div class="file-info" id="fileInfo">
+                <div>Selected file:</div>
+                <div class="filename" id="filename"></div>
+            </div>
+            
+            <!-- Configuration Settings -->
+            <div class="config-section" id="configSection" style="display: none;">
+                <h3 class="config-title">⚙️ Video Settings</h3>
+                
+                <div class="config-field">
+                    <label for="segmentDuration">Segment Duration (seconds)</label>
+                    <input type="number" id="segmentDuration" name="segment_duration" value="4" min="2" max="10" class="config-input">
+                    <span class="config-hint">Recommended: 2-6 seconds</span>
+                </div>
+                
+                <div class="config-field">
+                    <label for="bufferSize">Buffer Size (segments)</label>
+                    <input type="number" id="bufferSize" name="buffer_size" value="3" min="1" max="10" class="config-input">
+                    <span class="config-hint">Number of segments to preload</span>
+                </div>
+                
+                <div class="config-field">
+                    <label for="cacheExpiry">Cache Expiry Time (seconds)</label>
+                    <input type="number" id="cacheExpiry" name="cache_expiry" value="3600" min="300" max="86400" class="config-input">
+                    <span class="config-hint">How long segments stay in cache (300s-24h)</span>
+                </div>
+            </div>
+            
+            <div style="text-align: center;">
+                <button type="submit" class="upload-btn" id="uploadBtn" disabled>
+                    Upload & Process
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div class="overlay" id="processingOverlay">
+        <div class="processing-box">
+            <div class="spinner"></div>
+            <div class="processing-text">Processing your video...</div>
+            <div class="processing-subtext">Generating 480p quality for instant playback</div>
+            <div class="processing-subtext" style="margin-top: 10px; font-size: 0.9em;">
+                Other qualities will continue processing in the background
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const videoFile = document.getElementById('videoFile');
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInfo = document.getElementById('fileInfo');
+        const filename = document.getElementById('filename');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const uploadForm = document.getElementById('uploadForm');
+        const processingOverlay = document.getElementById('processingOverlay');
+
+        uploadArea.addEventListener('click', (e) => {
+            e.preventDefault();
+            videoFile.click();
+        });
+
+        videoFile.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                filename.textContent = file.name;
+                fileInfo.classList.add('show');
+                document.getElementById('configSection').style.display = 'block';
+                uploadBtn.disabled = false;
+            } else {
+                fileInfo.classList.remove('show');
+                document.getElementById('configSection').style.display = 'none';
+                uploadBtn.disabled = true;
+            }
+        });
+
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const file = videoFile.files[0];
+            if (!file) {
+                alert('Please select a video file');
+                return;
+            }
+
+            processingOverlay.classList.add('show');
+            uploadBtn.disabled = true;
+
+            const formData = new FormData();
+            formData.append('video', file);
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                
+                console.log('Upload response:', result);
+
+                if (response.ok && result.success) {
+                    console.log('Redirecting to:', `/player?video=${result.video_id}`);
+                    window.location.href = `/player?video=${result.video_id}`;
+                } else {
+                    throw new Error(result.error || 'Upload failed');
+                }
+            } catch (error) {
+                processingOverlay.classList.remove('show');
+                uploadBtn.disabled = false;
+                alert('Error: ' + error.message);
+            }
+        });
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => {
+                uploadArea.style.borderColor = '#ff69b4';
+                uploadArea.style.background = 'linear-gradient(135deg, #ffe8f5 0%, #ffd9ed 100%)';
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => {
+                uploadArea.style.borderColor = '#ffb3d9';
+                uploadArea.style.background = 'linear-gradient(135deg, #fff0f8 0%, #ffe8f5 100%)';
+            });
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+
+            if (files.length > 0) {
+                videoFile.files = files;
+                const event = new Event('change');
+                videoFile.dispatchEvent(event);
+            }
+        });
+    </script>
+</body>
+</html>

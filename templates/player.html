@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Player</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="player-body">
+    <nav class="navbar">
+        <div class="nav-content">
+            <a href="/"><img src="{{ url_for('static', filename='pinktube2.png') }}" alt="Logo" class="nav-logo"></a>
+            <div>
+                <a href="/library" class="nav-link">📚 Library</a>
+                <a href="/" class="nav-link">➕ Upload</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="player-wrapper">
+        <!-- Video Player (Left) -->
+        <div class="player-main">
+            <div class="video-container">
+                <video id="videoPlayer" playsinline></video>
+                
+                <div class="video-controls" id="videoControls">
+                    <div class="progress-bar" id="progressBar">
+                        <div class="progress-filled" id="progressFilled"></div>
+                        <div class="progress-handle" id="progressHandle"></div>
+                    </div>
+                    
+                    <div class="controls-bottom">
+                        <div class="controls-left">
+                            <button class="control-icon" id="playPauseBtn">
+                                <span class="icon">▶️</span>
+                            </button>
+                            <button class="control-icon" id="volumeBtn">
+                                <span class="icon">🔊</span>
+                            </button>
+                            <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="100">
+                            <span class="time-display" id="timeDisplay">0:00 / 0:00</span>
+                        </div>
+                        
+                        <div class="controls-right">
+                            <div class="quality-menu-container">
+                                <button class="control-icon" id="qualityBtn">
+                                    <span class="icon">⚙️</span>
+                                </button>
+                                <div class="quality-dropdown" id="qualityDropdown">
+                                    <!-- Quality options will be populated -->
+                                </div>
+                            </div>
+                            <button class="control-icon" id="fullscreenBtn">
+                                <span class="icon">⛶</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="center-play" id="centerPlay">
+                    <div class="center-play-btn">▶️</div>
+                </div>
+            </div>
+            
+            <div class="video-info-section">
+                <h2 class="video-title-main" id="videoTitleMain">Loading...</h2>
+                <div class="video-meta" id="videoMeta">Loading...</div>
+            </div>
+        </div>
+        
+        <!-- Segment List & Buffer (Right) -->
+        <div class="segment-sidebar">
+            <h3 class="segment-title">📼 Segments</h3>
+            
+            <div class="segment-quality-selector">
+                <label>View segments for:</label>
+                <select id="segmentQualitySelect" class="quality-select">
+                    <option value="480p">480P</option>
+                </select>
+            </div>
+            
+            <div id="segmentList" class="segment-list">
+                <div style="text-align: center; padding: 20px; color: #d966a3;">Loading...</div>
+            </div>
+            
+            <div class="buffer-display">
+                <div class="buffer-title">📊 Buffer Status</div>
+                <div class="buffer-progress">
+                    <div class="buffer-progress-fill" id="bufferFill">0%</div>
+                </div>
+                <div class="buffer-text" id="bufferText">0 of 0 segments buffered</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const VIDEO_ID = "{{ video_id }}";
+        let metadata = null;
+        let currentQuality = '480p';
+        let currentSegmentIndex = 0;
+        let segments = [];
+        let buffer = [];
+        let bandwidthSamples = [];
+        let isABR = true;
+        let abrInterval = null;
+        
+        const video = document.getElementById('videoPlayer');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const timeDisplay = document.getElementById('timeDisplay');
+        const progressBar = document.getElementById('progressBar');
+        const progressFilled = document.getElementById('progressFilled');
+        const qualityBtn = document.getElementById('qualityBtn');
+        const qualityDropdown = document.getElementById('qualityDropdown');
+        
+        // Initialize
+        async function init() {
+            const res = await fetch(`/api/video/${VIDEO_ID}/metadata`);
+            metadata = await res.json();
+            
+            document.getElementById('videoTitleMain').textContent = metadata.filename;
+            document.getElementById('videoMeta').textContent = `Duration: ${formatTime(metadata.duration)} • ${metadata.source_resolution}`;
+            
+            setupQualityMenu();
+            updateSegmentList();
+            loadSegment(0, currentQuality);
+            startABR();
+        }
+        
+        // Setup quality menu
+        function setupQualityMenu() {
+            qualityDropdown.innerHTML = '<div class="quality-option active" data-quality="auto"><span>Auto (ABR)</span><span class="quality-check">✓</span></div>';
+            
+            for (let res in metadata.resolutions) {
+                if (metadata.resolutions[res].status === 'completed') {
+                    const opt = document.createElement('div');
+                    opt.className = 'quality-option';
+                    opt.dataset.quality = res;
+                    opt.innerHTML = `<span>${res.toUpperCase()}</span><span class="quality-check">✓</span>`;
+                    opt.onclick = () => switchQualityManual(res);
+                    qualityDropdown.appendChild(opt);
+                }
+            }
+            
+            // Auto ABR option
+            qualityDropdown.querySelector('[data-quality="auto"]').onclick = () => {
+                isABR = true;
+                document.querySelectorAll('.quality-option').forEach(o => o.classList.remove('active'));
+                qualityDropdown.querySelector('[data-quality="auto"]').classList.add('active');
+            };
+        }
+        
+        // Manual quality switch
+        function switchQualityManual(newQuality) {
+            if (newQuality === currentQuality) return;
+            
+            isABR = false;
+            const currentTime = getGlobalTime();
+            currentQuality = newQuality;
+            segments = metadata.resolutions[currentQuality].segments;
+            
+            // Find segment at current timestamp
+            let timeAcc = 0;
+            for (let i = 0; i < segments.length; i++) {
+                if (timeAcc + segments[i].duration > currentTime) {
+                    loadSegment(i, currentQuality, currentTime - timeAcc);
+                    break;
+                }
+                timeAcc += segments[i].duration;
+            }
+            
+            document.querySelectorAll('.quality-option').forEach(o => o.classList.remove('active'));
+            qualityDropdown.querySelector(`[data-quality="${newQuality}"]`).classList.add('active');
+            updateSegmentList();
+        }
+        
+        // ABR logic
+        function startABR() {
+            abrInterval = setInterval(() => {
+                if (!isABR || !video.paused) return;
+                
+                const avgBandwidth = bandwidthSamples.length > 0 
+                    ? bandwidthSamples.reduce((a,b) => a+b) / bandwidthSamples.length 
+                    : 1000000;
+                
+                // Select quality based on bandwidth
+                let bestQuality = '480p';
+                for (let res in metadata.resolutions) {
+                    const resData = metadata.resolutions[res];
+                    if (resData.status === 'completed' && resData.bandwidth < avgBandwidth * 0.8) {
+                        bestQuality = res;
+                    }
+                }
+                
+                if (bestQuality !== currentQuality && buffer.length > 2) {
+                    switchQualityManual(bestQuality);
+                }
+            }, 5000);
+        }
+        
+        // Load segment
+        function loadSegment(index, quality, startTime = 0) {
+            segments = metadata.resolutions[quality].segments;
+            if (index >= segments.length) return;
+            
+            currentSegmentIndex = index;
+            const seg = segments[index];
+            
+            const startLoad = Date.now();
+            video.src = seg.url;
+            
+            video.onloadeddata = () => {
+                const loadTime = (Date.now() - startLoad) / 1000;
+                const bandwidth = (seg.duration / loadTime) * 1000000;
+                bandwidthSamples.push(bandwidth);
+                if (bandwidthSamples.length > 10) bandwidthSamples.shift();
+                
+                if (startTime > 0) video.currentTime = startTime;
+                video.play();
+                preloadBuffer();
+                updateSegmentList();
+                updateBufferDisplay();
+            };
+        }
+        
+        // Preload buffer
+        function preloadBuffer() {
+            const bufferSize = metadata.buffer_size || 3;
+            buffer = [];
+            
+            for (let i = 1; i <= bufferSize && currentSegmentIndex + i < segments.length; i++) {
+                const seg = segments[currentSegmentIndex + i];
+                const link = document.createElement('link');
+                link.rel = 'prefetch';
+                link.href = seg.url;
+                document.head.appendChild(link);
+                buffer.push(seg);
+            }
+            
+            updateBufferDisplay();
+        }
+        
+        // Update buffer display
+        function updateBufferDisplay() {
+            const total = segments.length;
+            const buffered = buffer.length;
+            const percent = (buffered / (metadata.buffer_size || 3)) * 100;
+            
+            document.getElementById('bufferFill').style.width = percent + '%';
+            document.getElementById('bufferFill').textContent = `${Math.round(percent)}%`;
+            document.getElementById('bufferText').textContent = `${buffered} of ${metadata.buffer_size || 3} segments buffered`;
+        }
+        
+        // Update segment list
+        function updateSegmentList() {
+            const select = document.getElementById('segmentQualitySelect');
+            const list = document.getElementById('segmentList');
+            
+            // Update quality selector
+            select.innerHTML = '';
+            for (let res in metadata.resolutions) {
+                if (metadata.resolutions[res].status === 'completed') {
+                    const opt = document.createElement('option');
+                    opt.value = res;
+                    opt.textContent = res.toUpperCase();
+                    if (res === currentQuality) opt.selected = true;
+                    select.appendChild(opt);
+                }
+            }
+            
+            // Show segments
+            segments = metadata.resolutions[currentQuality].segments;
+            list.innerHTML = '';
+            
+            segments.forEach((seg, idx) => {
+                const div = document.createElement('div');
+                div.className = 'segment-item' + (idx === currentSegmentIndex ? ' active' : '');
+                div.innerHTML = `
+                    <div class="segment-thumbnail">
+                        <img src="${seg.thumbnail}" onerror="this.parentElement.textContent='🎬'">
+                    </div>
+                    <div class="segment-info">
+                        <div class="segment-number">Segment ${idx + 1}</div>
+                        <div class="segment-duration">${seg.duration.toFixed(1)}s</div>
+                        <div class="segment-status" id="status-${idx}">Ready</div>
+                        <div class="segment-progress">
+                            <div class="segment-progress-fill" id="progress-${idx}"></div>
+                        </div>
+                    </div>
+                `;
+                div.onclick = () => {
+                    if (!div.classList.contains('missing')) {
+                        loadSegment(idx, currentQuality);
+                    }
+                };
+                list.appendChild(div);
+            });
+            
+            checkMissingSegments();
+        }
+        
+        // Check missing segments
+        async function checkMissingSegments() {
+            const res = await fetch(`/api/video/${VIDEO_ID}/segments/${currentQuality}/status`);
+            const status = await res.json();
+            
+            if (status.missing && status.missing.length > 0) {
+                status.missing.forEach(filename => {
+                    const idx = segments.findIndex(s => s.filename === filename);
+                    if (idx >= 0) {
+                        const statusEl = document.getElementById(`status-${idx}`);
+                        if (statusEl) {
+                            statusEl.textContent = 'MISSING';
+                            statusEl.className = 'segment-status missing';
+                            statusEl.closest('.segment-item').classList.add('missing');
+                        }
+                    }
+                });
+            }
+        }
+        
+        // Get global time across all segments
+        function getGlobalTime() {
+            let time = 0;
+            for (let i = 0; i < currentSegmentIndex; i++) {
+                time += segments[i].duration;
+            }
+            return time + video.currentTime;
+        }
+        
+        function getTotalTime() {
+            return segments.reduce((sum, seg) => sum + seg.duration, 0);
+        }
+        
+        function formatTime(seconds) {
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60);
+            return `${m}:${s.toString().padStart(2, '0')}`;
+        }
+        
+        // Video events
+        video.addEventListener('ended', () => {
+            if (currentSegmentIndex < segments.length - 1) {
+                loadSegment(currentSegmentIndex + 1, currentQuality);
+            }
+        });
+        
+        video.addEventListener('timeupdate', () => {
+            const globalTime = getGlobalTime();
+            const totalTime = getTotalTime();
+            const percent = (globalTime / totalTime) * 100;
+            
+            progressFilled.style.width = percent + '%';
+            timeDisplay.textContent = `${formatTime(globalTime)} / ${formatTime(totalTime)}`;
+            
+            // Update current segment progress
+            if (segments[currentSegmentIndex]) {
+                const segPercent = (video.currentTime / segments[currentSegmentIndex].duration) * 100;
+                const progressEl = document.getElementById(`progress-${currentSegmentIndex}`);
+                if (progressEl) {
+                    progressEl.style.width = Math.min(100, segPercent) + '%';
+                }
+            }
+        });
+        
+        // Controls
+        playPauseBtn.onclick = () => {
+            if (video.paused) {
+                video.play();
+                playPauseBtn.querySelector('.icon').textContent = '⏸️';
+            } else {
+                video.pause();
+                playPauseBtn.querySelector('.icon').textContent = '▶️';
+            }
+        };
+        
+        document.getElementById('centerPlay').onclick = () => {
+            video.play();
+            document.getElementById('centerPlay').style.display = 'none';
+        };
+        
+        qualityBtn.onclick = (e) => {
+            e.stopPropagation();
+            qualityDropdown.classList.toggle('show');
+        };
+        
+        document.onclick = () => qualityDropdown.classList.remove('show');
+        
+        document.getElementById('segmentQualitySelect').onchange = (e) => {
+            currentQuality = e.target.value;
+            updateSegmentList();
+        };
+        
+        // Start
+        init();
+    </script>
+</body>
+</html>

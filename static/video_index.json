@@ -1,0 +1,25 @@
+{
+  "videos": [
+    {
+      "id": "arnab-89904e29",
+      "title": "arnab",
+      "thumbnail": "/static/videos/arnab-89904e29/thumbnail.jpg",
+      "duration": 60.906667,
+      "upload_date": "2025-12-09T07:19:10.540366"
+    },
+    {
+      "id": "SAHARA_DESERT_-_ALGERIA_4K-d3c6a493",
+      "title": "SAHARA_DESERT_-_ALGERIA_4K",
+      "thumbnail": "/static/videos/SAHARA_DESERT_-_ALGERIA_4K-d3c6a493/thumbnail.jpg",
+      "duration": 118.524762,
+      "upload_date": "2025-12-09T07:07:30.020299"
+    },
+    {
+      "id": "beach-418d9a97",
+      "title": "beach",
+      "thumbnail": "/static/videos/beach-418d9a97/thumbnail.jpg",
+      "duration": 59.96,
+      "upload_date": "2025-12-08T20:52:35.846518"
+    }
+  ]
+}
